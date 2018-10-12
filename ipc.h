@@ -297,7 +297,6 @@ int ipc_sem_try_decrement(ipc_sharedsemaphore *sem)
 
 int ipc_mem_open_existing(ipc_sharedmemory *mem)
 {
-	printf("open '%s'\n", mem->name);
     mem->fd = shm_open(mem->name, O_RDWR, 0755);
     if (mem->fd < 0)
         return -1;
