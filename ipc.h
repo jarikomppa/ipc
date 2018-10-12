@@ -95,13 +95,12 @@ USAGE
 #if defined(_WIN32)
 #include <windows.h>
 #else // !_WIN32
+#include <semaphore.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#if defined(__APPLE__)
 #include <errno.h>
-#endif // __APPLE__
 #endif // !_WIN32
 
 #ifdef __cplusplus
@@ -169,11 +168,21 @@ static unsigned char * ipc_strdup(unsigned char *src)
     unsigned char *dst = NULL;
     len = 0;
     while (src[len]) len++;
+#if !defined(_WIN32)
+	len++;
+#endif
     dst = (unsigned char *)IPC_MALLOC(len+1);
     if (!dst) return NULL;
-    dst[len] = 0;
+	dst[len] = 0;
+
+#if defined(_WIN32)
     for (i = 0; i < len; i++)
         dst[i] = src[i];
+#else
+	dst[0] = '/';
+	for (i = 0; i < len-1; i++)
+		dst[i+1] = src[i];
+#endif
     return dst;
 }
 
@@ -253,7 +262,7 @@ void ipc_mem_close(ipc_sharedmemory *mem)
 
 int ipc_sem_create(ipc_sharedsemaphore *sem, int initialvalue)
 {
-    sem->handle = CreateSemaphoreA(NULL, initialvalue, 0x7fffffff, name);
+    sem->handle = CreateSemaphoreA(NULL, initialvalue, 0x7fffffff, sem->name);
     if (!sem->handle)
         return -1;
     return 0;
@@ -288,8 +297,9 @@ int ipc_sem_try_decrement(ipc_sharedsemaphore *sem)
 
 int ipc_mem_open_existing(ipc_sharedmemory *mem)
 {
-    mem->fd = shm_open(mem->name, O_CREAT | O_RDWR, 0755);
-    if (fd < 0)
+	printf("open '%s'\n", mem->name);
+    mem->fd = shm_open(mem->name, O_RDWR, 0755);
+    if (mem->fd < 0)
         return -1;
 
     mem->data = (unsigned char *)mmap(NULL, mem->size, PROT_READ | PROT_WRITE, MAP_SHARED, mem->fd, 0);
@@ -303,19 +313,19 @@ int ipc_mem_create(ipc_sharedmemory *mem)
 {
     int ret;
     ret = shm_unlink(mem->name);
-    if (ret < 0 && errno != ENOENT)
+	if (ret < 0 && errno != ENOENT)
         return -1;
-        
-    mem->fd = shm_open(mem->name, O_CREAT | O_RDWR, 0755);
-    if (fd < 0)
+
+	mem->fd = shm_open(mem->name, O_CREAT | O_RDWR, 0755);
+    if (mem->fd < 0)
         return -1;
-    
-    ret = ftruncate(mem->fd, mem->size);
-    
+
+    ftruncate(mem->fd, mem->size);
+
     mem->data = (unsigned char *)mmap(NULL, mem->size, PROT_READ | PROT_WRITE, MAP_SHARED, mem->fd, 0);
     if (!mem->data)
         return -1;
-        
+
     return 0;
 }
 
@@ -334,9 +344,9 @@ void ipc_mem_close(ipc_sharedmemory *mem)
 
 int ipc_sem_create(ipc_sharedsemaphore *sem, int initialvalue)
 {
-    sem->semaphore = sem_open(sem->name, O_CREAT|O_EXCL, 0700, initialvalue);
-    if (sem->semaphore == SEM_FAILED)
-        return -1;
+	sem->semaphore = sem_open(sem->name, O_CREAT, 0700, initialvalue);
+	if (sem->semaphore == SEM_FAILED)
+		return -1;
     return 0;
 }
 
