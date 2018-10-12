@@ -1,5 +1,7 @@
 /*  ipc.h - v0.1 - public domain cross platform inter process communication
                    no warranty implied; use at your own risk
+    
+    by Jari Komppa, http://iki.fi/sol/
 
 INCLUDE
    
@@ -16,7 +18,7 @@ INCLUDE
    
     You can #define IPC_MALLOC, and IPC_FREE to avoid using malloc,free
 
-LICENSE
+LICENSE    
   
     This is free and unencumbered software released into the public domain.
 
