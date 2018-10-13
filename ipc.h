@@ -1,25 +1,25 @@
-/*  ipc.h - v0.1 - public domain cross platform inter process communication
+/*  ipc.h - v0.2 - public domain cross platform inter process communication
                    no warranty implied; use at your own risk
-    
+
     by Jari Komppa, http://iki.fi/sol/
 
 INCLUDE
-   
+
     Do this:
-       #define IPC_IMPLEMENTATION      
+       #define IPC_IMPLEMENTATION
     before you include this file in *one* C or C++ file to create the implementation.
-   
+
     // i.e. it should look like this:
     #include ...
     #include ...
     #include ...
     #define IPC_IMPLEMENTATION
     #include "ipc.h"
-   
+
     You can #define IPC_MALLOC, and IPC_FREE to avoid using malloc,free
 
-LICENSE    
-  
+LICENSE
+
     This is free and unencumbered software released into the public domain.
 
     Anyone is free to copy, modify, publish, use, compile, sell, or
@@ -44,24 +44,24 @@ LICENSE
     OTHER DEALINGS IN THE SOFTWARE.
 
     For more information, please refer to <http://unlicense.org/>
-    
+
 USAGE
 
     Shared memory API:
 
     void ipc_mem_init(ipc_sharedmemory *mem, unsigned char *name, size_t size);
     - Initialize ipc_sharedmemory structure for use. Call this first.
-    
+
     int ipc_mem_open_existing(ipc_sharedmemory *mem);
     - Try to open existing shared memory. Returns 0 for success.
-    
+
     int ipc_mem_create(ipc_sharedmemory *mem);
     - Try to create shared memory. Returns 0 for success.
-    
+
     void ipc_mem_close(ipc_sharedmemory *mem);
     - Close shared memory and free allocated stuff. Shared memory will only get
       destroyed when nobody is accessing it. Call this last.
-      
+
     unsigned char *ipc_mem_access(ipc_sharedmemory *mem);
     - Access the shared memory. Same as poking mem->data directly, but some people
       like accessors.
@@ -69,13 +69,13 @@ USAGE
 
 
     Shared semaphore API:
-    
+
     void ipc_sem_init(ipc_sharedsemaphore *sem, unsigned char *name);
     - Initialize ipc_sharedsemaphore for use. Call this first.
-    
+
     int ipc_sem_create(ipc_sharedsemaphore *sem, int initialvalue);
     - Try to create semaphore. Returns 0 for success.
-    
+
     void ipc_sem_close(ipc_sharedsemaphore *sem);
     - Close the semaphore and deallocate. Shared semaphore will only go away after
       nobody is using it. Call this last.
@@ -88,22 +88,29 @@ USAGE
 
     int ipc_sem_try_decrement(ipc_sharedsemaphore *sem);
     - Try to decrement the semaphore, returns 1 for success, 0 for failure.
-      
+
+TROUBLESHOOTING
+
+    - Thread programming issues apply; don't mess with the memory someone else might
+      be reading, make sure you release semaphore after use not to hang someone else,
+      etc.
+    - If process crashes while holding a semaphore, the others may end up waiting
+      forever for them to release.
+    - On Linux, named items will remain after your application closes unless you
+      close them. This is particularly fun if your application crashes. Having a
+      commandline mode that just tries to create and then close all your shared
+      resources may be convenient. Saves on rebooting, at least.. On windows, if
+      nobody is around to use the resource, they disappear.
 */
 
 #ifndef IPC_H_INCLUDE_GUARD
 #define IPC_H_INCLUDE_GUARD
 
 #if defined(_WIN32)
-#include <windows.h>
-#else // !_WIN32
+typedef void *HANDLE;
+#else
 #include <semaphore.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <errno.h>
-#endif // !_WIN32
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,17 +118,17 @@ extern "C" {
 
 typedef struct ipc_sharedmemory_
 {
-    unsigned char *name;
+    char *name;
     unsigned char *data;
     size_t        size;
 #if defined(_WIN32)
     HANDLE        handle;
 #else
     int           fd;
-#endif      
+#endif
 } ipc_sharedmemory;
 
-extern void ipc_mem_init(ipc_sharedmemory *mem, unsigned char *name, size_t size);
+extern void ipc_mem_init(ipc_sharedmemory *mem, char *name, size_t size);
 extern int ipc_mem_open_existing(ipc_sharedmemory *mem);
 extern int ipc_mem_create(ipc_sharedmemory *mem);
 extern void ipc_mem_close(ipc_sharedmemory *mem);
@@ -129,15 +136,15 @@ extern unsigned char *ipc_mem_access(ipc_sharedmemory *mem);
 
 typedef struct ipc_sharedsemaphore_
 {
-    unsigned char *name;
+    char *name;
 #if defined(_WIN32)
     HANDLE        handle;
 #else
     sem_t         *semaphore;
-#endif      
+#endif
 } ipc_sharedsemaphore;
 
-extern void ipc_sem_init(ipc_sharedsemaphore *sem, unsigned char *name);
+extern void ipc_sem_init(ipc_sharedsemaphore *sem, char *name);
 extern int ipc_sem_create(ipc_sharedsemaphore *sem, int initialvalue);
 extern void ipc_sem_close(ipc_sharedsemaphore *sem);
 extern void ipc_sem_increment(ipc_sharedsemaphore *sem);
@@ -152,6 +159,16 @@ extern int ipc_sem_try_decrement(ipc_sharedsemaphore *sem);
 
 #ifdef IPC_IMPLEMENTATION
 
+#if defined(_WIN32)
+#include <windows.h>
+#else // !_WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+#endif // !_WIN32
+
 #ifndef IPC_ASSERT
 #define IPC_ASSERT(x) assert(x)
 #endif
@@ -162,43 +179,43 @@ extern int ipc_sem_try_decrement(ipc_sharedsemaphore *sem);
 
 #ifndef IPC_FREE
 #define IPC_FREE(x) free(x)
-#endif 
+#endif
 
-static unsigned char * ipc_strdup(unsigned char *src)
+static char * ipc_strdup(char *src)
 {
     int i, len;
-    unsigned char *dst = NULL;
+    char *dst = NULL;
     len = 0;
     while (src[len]) len++;
 #if !defined(_WIN32)
-	len++;
+    len++;
 #endif
-    dst = (unsigned char *)IPC_MALLOC(len+1);
+    dst = (char *)IPC_MALLOC(len+1);
     if (!dst) return NULL;
-	dst[len] = 0;
+    dst[len] = 0;
 
 #if defined(_WIN32)
     for (i = 0; i < len; i++)
         dst[i] = src[i];
 #else
-	dst[0] = '/';
-	for (i = 0; i < len-1; i++)
-		dst[i+1] = src[i];
+    dst[0] = '/';
+    for (i = 0; i < len-1; i++)
+        dst[i+1] = src[i];
 #endif
     return dst;
 }
 
-void ipc_mem_init(ipc_sharedmemory *mem, unsigned char *name, size_t size)
+void ipc_mem_init(ipc_sharedmemory *mem, char *name, size_t size)
 {
     mem->name = ipc_strdup(name);
-    
+
     mem->size = size;
     mem->data = NULL;
 #if defined(_WIN32)
     mem->handle = 0;
 #else
     mem->fd = -1;
-#endif          
+#endif
 }
 
 unsigned char *ipc_mem_access(ipc_sharedmemory *mem)
@@ -206,15 +223,15 @@ unsigned char *ipc_mem_access(ipc_sharedmemory *mem)
     return mem->data;
 }
 
-void ipc_sem_init(ipc_sharedsemaphore *sem, unsigned char *name)
+void ipc_sem_init(ipc_sharedsemaphore *sem, char *name)
 {
     sem->name = ipc_strdup(name);
 #if defined(_WIN32)
     sem->handle = 0;
 #else
     sem->semaphore = NULL;
-#endif          
-    
+#endif
+
 }
 
 
@@ -224,11 +241,11 @@ int ipc_mem_open_existing(ipc_sharedmemory *mem)
 {
     mem->handle = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE,  mem->name);
 
-    if (!mem->handle) 
+    if (!mem->handle)
         return -1;
-        
+
     mem->data = (unsigned char*)MapViewOfFile(mem->handle, FILE_MAP_ALL_ACCESS, 0, 0, mem->size);
-    
+
     if (!mem->data)
         return -1;
     return 0;
@@ -242,12 +259,12 @@ int ipc_mem_create(ipc_sharedmemory *mem)
         return -1;
 
     mem->data = (unsigned char*)MapViewOfFile(mem->handle, FILE_MAP_ALL_ACCESS, 0, 0, mem->size);
-    
+
     if (!mem->data)
         return -1;
 
     return 0;
-    
+
 }
 
 void ipc_mem_close(ipc_sharedmemory *mem)
@@ -306,7 +323,7 @@ int ipc_mem_open_existing(ipc_sharedmemory *mem)
     mem->data = (unsigned char *)mmap(NULL, mem->size, PROT_READ | PROT_WRITE, MAP_SHARED, mem->fd, 0);
     if (!mem->data)
         return -1;
-    
+
     return 0;
 }
 
@@ -314,10 +331,10 @@ int ipc_mem_create(ipc_sharedmemory *mem)
 {
     int ret;
     ret = shm_unlink(mem->name);
-	if (ret < 0 && errno != ENOENT)
+    if (ret < 0 && errno != ENOENT)
         return -1;
 
-	mem->fd = shm_open(mem->name, O_CREAT | O_RDWR, 0755);
+    mem->fd = shm_open(mem->name, O_CREAT | O_RDWR, 0755);
     if (mem->fd < 0)
         return -1;
 
@@ -345,9 +362,9 @@ void ipc_mem_close(ipc_sharedmemory *mem)
 
 int ipc_sem_create(ipc_sharedsemaphore *sem, int initialvalue)
 {
-	sem->semaphore = sem_open(sem->name, O_CREAT, 0700, initialvalue);
-	if (sem->semaphore == SEM_FAILED)
-		return -1;
+    sem->semaphore = sem_open(sem->name, O_CREAT, 0700, initialvalue);
+    if (sem->semaphore == SEM_FAILED)
+        return -1;
     return 0;
 }
 
